@@ -4,6 +4,7 @@ from reportlab.pdfgen import canvas
 import shutil
 import streamlit as st
 from tempfile import TemporaryDirectory
+import tempfile
 
 # --- FONCTIONS UTILITAIRES ---
 
@@ -75,12 +76,40 @@ def process_dataframe(df: pd.DataFrame, output_dir: str, progress_bar):
 
     return count_morale, count_physique
 
+# def zip_folder(folder_path: str) -> str:
+#     """Compresse un dossier et retourne le chemin du zip."""
+#     zip_path = f"{folder_path}.zip"
+#     if os.path.exists(zip_path):
+#         os.remove(zip_path)
+#     shutil.make_archive(folder_path, "zip", folder_path)
+#     return zip_path
+
 def zip_folder(folder_path: str) -> str:
-    """Compresse un dossier et retourne le chemin du zip."""
-    zip_path = f"{folder_path}.zip"
+    """
+    Compresse un dossier dans un zip contenant une copie imbriquée du dossier.
+    Exemple :
+        - Entrée : marchand/
+        - Sortie : marchand.zip contenant marchand/marchand/[contenu]
+    """
+    folder_path = os.path.abspath(folder_path)
+    parent_dir, folder_name = os.path.split(folder_path)
+    zip_path = os.path.join(parent_dir, f"{folder_name}.zip")
+
+    # Supprimer le zip s'il existe déjà
     if os.path.exists(zip_path):
         os.remove(zip_path)
-    shutil.make_archive(folder_path, "zip", folder_path)
+
+    # Créer un dossier temporaire pour y copier le dossier d'origine
+    with tempfile.TemporaryDirectory() as tmpdir:
+        nested_dir = os.path.join(tmpdir, folder_name)
+        os.makedirs(nested_dir, exist_ok=True)
+
+        # Copier le dossier original à l'intérieur du nouveau dossier
+        shutil.copytree(folder_path, os.path.join(nested_dir, folder_name))
+
+        # Créer le zip à partir du dossier temporaire
+        shutil.make_archive(os.path.join(parent_dir, folder_name), 'zip', tmpdir)
+
     return zip_path
 
 # --- INTERFACE STREAMLIT ---
@@ -89,20 +118,27 @@ st.set_page_config(page_title="📦 Générateur Dossiers Marchands", layout="ce
 st.title("📂 Générateur de Dossiers Marchands")
 st.write("Ce module génère automatiquement les dossiers, fichiers et PDF pour chaque marchand à partir d’un fichier Excel.")
 
-uploaded_file = st.file_uploader("📤 Importer le fichier Excel (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader("📤 Importer le fichier (.xlsx ou .csv)", type=["xlsx", "csv"])
 
 if uploaded_file:
-    # Lecture sans conversion automatique en float
-    df = pd.read_excel(uploaded_file, dtype=str)
-    df = df.fillna("")  # éviter les NaN
+    # Détection du type de fichier
+    file_name = uploaded_file.name.lower()
 
+    if file_name.endswith(".csv"):
+        # Lecture CSV sans conversion automatique en float
+        df = pd.read_csv(uploaded_file, dtype=str)
+    else:
+        # Lecture Excel sans conversion automatique en float
+        df = pd.read_excel(uploaded_file, dtype=str)
+
+    df = df.fillna("")  # éviter les NaN
     st.success(f"✅ Fichier chargé avec {len(df)} lignes.")
     st.dataframe(df.head())
 
     if st.button("🚀 Générer les dossiers et le ZIP"):
         with st.spinner("Génération en cours..."):
             with TemporaryDirectory() as tmpdir:
-                output_dir = os.path.join(tmpdir, "PAHOU")
+                output_dir = os.path.join(tmpdir, "marchand")
                 os.makedirs(output_dir, exist_ok=True)
 
                 progress_bar = st.progress(0)
@@ -120,7 +156,7 @@ if uploaded_file:
                     st.download_button(
                         label="📦 Télécharger le ZIP",
                         data=f,
-                        file_name="PAHOU.zip",
+                        file_name="marchand.zip",
                         mime="application/zip"
                     )
 
